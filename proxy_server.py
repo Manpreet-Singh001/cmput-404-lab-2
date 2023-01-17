@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 import socket, sys
+import time
+from multiprocessing import Process
 
+# define address & buffer size
+HOST = ""
+PORT = 8001
+PORT_END = 80
+BUFFER_SIZE = 1024
 
 # create a tcp socket
 def create_tcp_socket():
@@ -38,34 +45,37 @@ def send_data(serversocket, payload):
         sys.exit()
     print("Payload sent successfully")
 
-
-# define address & buffer size
-HOST = ""
-PORT = 8001
-BUFFER_SIZE = 1024
 def main():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as proxy_front:
+        proxy_front.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        # QUESTION 3
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        proxy_front.bind((HOST, PORT))
+        proxy_front.listen(2)
 
-        # bind socket to address
-        s.bind((HOST, PORT))
-        # set to listening mode
-        s.listen(2)
+        while True:
+            conn, addr = proxy_front.accept()
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as proxy_end:
+                remote_ip = get_remote_ip('www.google.com')
+                proxy_end.connect((remote_ip, PORT_END))
+                p = Process(target=handle_request, args=(conn, addr, proxy_end), daemon=True)
+                p.start()
 
-        # continuously listen for connections
-        conn, addr = s.accept()
-        print("Connected by", addr)
 
-        with conn:
-            while True:
-                data = conn.recv(BUFFER_SIZE)
-                if not data:
-                    break
-                conn.sendall(data)
+def handle_request(conn, addr, proxy_end):
+    print(f'Connected by address: {addr}')
+    client_request_data = conn.recv(BUFFER_SIZE)
+    proxy_end.sendall(client_request_data)
+
+    proxy_end_response = b''
+    while True:
+        data = proxy_end.recv(BUFFER_SIZE)
+        if not data:
+            break
+        proxy_end_response += data
+    conn.sendall(proxy_end_response)
+    conn.shutdown(socket.SHUT_RDWR)
+    conn.close()
 
 
 if __name__ == "__main__":
     main()
-
